@@ -353,6 +353,15 @@ export function createWebApi(): typeof window.api {
         }
       },
       listRepos: async (): Promise<GithubRepo[]> => {
+        // Local bridge first (desktop app): gh CLI = full keyring auth, so it sees every
+        // private collaborator/org repo the board's token can't. Absent in plain web → skip.
+        try {
+          const res = await fetch('http://localhost:5177/api/github/repos', { signal: AbortSignal.timeout(60000) })
+          if (res.ok) {
+            const repos = (await res.json()) as GithubRepo[]
+            if (Array.isArray(repos) && repos.length) return repos
+          }
+        } catch { /* no bridge — fall through */ }
         // Shared board: server keeps a merged, always-current repo list.
         try {
           const res = await boardFetch('/github/repos?refresh=1')

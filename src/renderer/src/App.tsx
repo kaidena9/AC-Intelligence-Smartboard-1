@@ -42,11 +42,11 @@ export default function App(): React.JSX.Element {
       await hydrate()
       await checkGithub()
       const st = useStore.getState()
-      if (st.githubStatus?.connected && !localStorage.getItem('wc-autosynced-v6')) {
+      if (st.githubStatus?.connected && !localStorage.getItem('wc-autosynced-v7')) {
         try {
           await st.syncFromGitHub()
         } finally {
-          localStorage.setItem('wc-autosynced-v6', '1')
+          localStorage.setItem('wc-autosynced-v7', '1')
         }
       }
     })()
