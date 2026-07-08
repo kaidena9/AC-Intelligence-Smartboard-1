@@ -1,7 +1,17 @@
 import { create } from 'zustand'
 import type { GithubStatus, Project, ProjectCategory, ProjectStatus, Store } from '@shared/types'
 import { CURRENT_SCHEMA_VERSION } from '@shared/types'
-import { reconcileProjects } from '@shared/reconcile'
+import { reconcileProjects, idKey, nameKey } from '@shared/reconcile'
+
+// Repos the user deleted are tombstoned in localStorage so a GitHub sync won't re-add
+// them. Kept out of the zod store doc to avoid a schema migration.
+const DISMISSED_KEY = 'wc-dismissed-repos'
+function readDismissed(): string[] {
+  try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) || '[]') as string[] } catch { return [] }
+}
+function addDismissed(keys: string[]): void {
+  try { localStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...readDismissed(), ...keys])])) } catch { /* */ }
+}
 
 type View =
   | 'hub'
@@ -155,6 +165,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   removeProject: (id) => {
+    // Tombstone github-sourced repos so the next sync won't re-import them.
+    const proj = get().projects.find((p) => p.id === id)
+    if (proj?.source === 'github') {
+      const keys: string[] = []
+      if (proj.repoId) keys.push(idKey(proj.repoId))
+      if (proj.repoFullName) keys.push(nameKey(proj.repoFullName))
+      if (keys.length) addDismissed(keys)
+    }
     const projects = get().projects.filter((p) => p.id !== id)
     const selectedProjectId = get().selectedProjectId === id ? null : get().selectedProjectId
     set({ projects, selectedProjectId })
@@ -234,7 +252,8 @@ export const useStore = create<AppState>((set, get) => ({
         repos,
         get().projects,
         ts,
-        () => crypto.randomUUID()
+        () => crypto.randomUUID(),
+        new Set(readDismissed())
       )
       const result: SyncResult = { added, updated, orphaned }
       set({ projects, lastSync: result })

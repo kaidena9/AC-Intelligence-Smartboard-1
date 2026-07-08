@@ -62,32 +62,34 @@ export function SitePreview({
     )
   }
 
-  /* ── Web: screenshot via image.thum.io ── */
-  const thumbUrl = `https://image.thum.io/get/width/1280/crop/${Math.round(baseH > 0 ? baseH : 800)}/${url}`
+  /* ── Web: LIVE scaled iframe (always current — no stale screenshot cache) ──
+     Falls back to a screenshot only if the site refuses to be framed. */
+  const thumbUrl = `https://image.thum.io/get/width/1280/crop/${Math.round(baseH > 0 ? baseH : 800)}/maxAge/6/${url}`
 
   return (
     <div ref={ref} className="relative w-full overflow-hidden bg-surface-2" style={{ height }}>
-      {!imgError ? (
+      {!imgError && scale > 0 && (
+        <iframe
+          src={url}
+          title={domain(url)}
+          scrolling="no"
+          sandbox="allow-scripts allow-same-origin"
+          onError={() => setImgError(true)}
+          style={{
+            position: 'absolute', top: 0, left: 0,
+            width: BASE_W, height: baseH, border: '0',
+            transform: `scale(${scale})`, transformOrigin: 'top left',
+            pointerEvents: 'none'
+          }}
+        />
+      )}
+      {imgError && (
+        /* Site refuses to be framed → recent screenshot, else a link. */
         <img
           src={thumbUrl}
           alt={domain(url)}
           className="absolute inset-0 h-full w-full object-cover object-top"
-          onError={() => setImgError(true)}
         />
-      ) : (
-        /* Fallback: styled placeholder when screenshot fails */
-        <div className="flex h-full flex-col items-center justify-center gap-1.5 bg-surface-2 px-4 text-center">
-          <span className="text-xs font-medium text-muted">{domain(url)}</span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="text-[11px] text-accent underline underline-offset-2"
-          >
-            Open site ↗
-          </a>
-        </div>
       )}
     </div>
   )

@@ -27,14 +27,16 @@ export interface ReconcileResult {
   orphaned: number
 }
 
-const idKey = (repoId: string): string => `id:${repoId}`
-const nameKey = (fullName: string): string => `fn:${fullName.toLowerCase()}`
+export const idKey = (repoId: string): string => `id:${repoId}`
+export const nameKey = (fullName: string): string => `fn:${fullName.toLowerCase()}`
 
 export function reconcileProjects(
   repos: GithubRepo[],
   existing: Project[],
   ts: number,
-  newId: () => string
+  newId: () => string,
+  // Repos the user explicitly deleted — reconcile must NOT re-import them on sync.
+  dismissed: Set<string> = new Set()
 ): ReconcileResult {
   const result: Project[] = existing.map((p) => ({ ...p }))
 
@@ -53,6 +55,9 @@ export function reconcileProjects(
   let updated = 0
 
   for (const r of fetched) {
+    // Skip repos the user deleted — never resurrect them on sync.
+    if ((r.repoId && dismissed.has(idKey(r.repoId))) || dismissed.has(nameKey(r.fullName))) continue
+
     if (r.repoId) fetchedKeys.add(idKey(r.repoId))
     fetchedKeys.add(nameKey(r.fullName))
 
