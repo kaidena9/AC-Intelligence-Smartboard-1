@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { bridgeOnline, fetchStatus, fetchVaultTree, saveAgentSession, fetchAgentSessions, fetchAgentSession, type AgentSessionRow } from '../lib/bridge'
+import { chatWithTools, summarizeTool, type ToolEvent } from '../lib/agentTools'
 import realm from '../assets/odin-realm.jpg'
 
 /* ============================================================
@@ -36,7 +37,8 @@ const DEPTHS = [
 ]
 
 interface Source { title: string; url: string; date?: string }
-interface Msg { role: 'user' | 'assistant'; content: string; sources?: Source[]; related?: string[]; via?: string }
+interface ToolLog { name: string; args: string; result: string; ok: boolean }
+interface Msg { role: 'user' | 'assistant'; content: string; sources?: Source[]; related?: string[]; via?: string; tools?: ToolLog[] }
 interface SonarReply { content: string; citations: string[]; search_results: Source[]; related: string[]; usage: unknown; error?: string }
 
 const hostOf = (u: string): string => { try { return new URL(u).hostname.replace(/^www\./, '') } catch { return u } }
@@ -52,23 +54,6 @@ async function askSonar(model: string, messages: { role: string; content: string
   const data = await res.json()
   if (!res.ok) throw new Error(data?.error || `bridge ${res.status}`)
   return data as SonarReply
-}
-
-// OpenRouter direct (same path Athena uses); cost accrues to the shared OpenRouter ledger.
-async function askOR(model: string, messages: { role: string; content: string }[], effort: string): Promise<string> {
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST', headers: { Authorization: `Bearer ${orKey()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, max_tokens: 4000, usage: { include: true }, reasoning: { effort } }), signal: AbortSignal.timeout(120000)
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data?.error?.message || `OpenRouter ${res.status}`)
-  const cost = Number(data?.usage?.cost || 0)
-  if (cost > 0) {
-    const mk = new Date().toISOString().slice(0, 7)
-    const led = JSON.parse(localStorage.getItem('athena-costs') || '{}'); led[mk] = (led[mk] || 0) + cost
-    localStorage.setItem('athena-costs', JSON.stringify(led)); window.dispatchEvent(new Event('athena-cost'))
-  }
-  return data.choices?.[0]?.message?.content ?? ''
 }
 
 export function Odin(): React.JSX.Element {
@@ -170,8 +155,20 @@ export function Odin(): React.JSX.Element {
         if (!hasORKey) throw new Error('Add your OpenRouter key to use OpenRouter models.')
         usedModels.current.add(model)
         setBusy(`consulting ${curLabel}…`)
-        const out = await askOR(model, [{ role: 'system', content: sys }, ...history, { role: 'user', content: q }], depth)
-        setMsgs((m) => [...m, { role: 'assistant', content: out, via: `OpenRouter · ${curLabel}` }])
+        const toolSys = `${sys}\n\nTOOLS — you have real hands on Kaiden's machine and GitHub; use them to DO things, not just describe them: gh (GitHub CLI as kaidena9, write-capable), git (his local repos), read_file, list_dir, and claude_task (delegate a whole job to headless Claude Code). You are fully autonomous — execute directly and report results, chaining calls as needed.`
+        const toolLog: ToolLog[] = []
+        const { content } = await chatWithTools(
+          model,
+          [{ role: 'system', content: toolSys }, ...history, { role: 'user', content: q }],
+          {
+            effort: depth,
+            onEvent: (e: ToolEvent) => {
+              toolLog.push({ name: e.name, args: JSON.stringify(e.args), result: e.result, ok: e.ok })
+              setBusy(`⚙ ${summarizeTool(e)}…`)
+            }
+          }
+        )
+        setMsgs((m) => [...m, { role: 'assistant', content, via: `OpenRouter · ${curLabel}${toolLog.length ? ` · ${toolLog.length} tool${toolLog.length > 1 ? 's' : ''}` : ''}`, tools: toolLog.length ? toolLog : undefined }])
       }
     } catch (e) { setErr((e as Error).message) } finally { setBusy(null) }
   }
@@ -241,6 +238,17 @@ export function Odin(): React.JSX.Element {
             <div key={i} className={m.role === 'user' ? 'msgu' : 'msga'} style={{ padding: '13px 17px', borderRadius: 4, margin: '12px 0', lineHeight: 1.65, fontSize: 15, whiteSpace: 'pre-wrap', marginLeft: m.role === 'user' ? '16%' : 0, marginRight: m.role === 'user' ? 0 : '6%' }}>
               {m.via && <div className="cap" style={{ marginBottom: 6, color: '#7fb0d6' }}>ODIN · {m.via}</div>}
               {m.content}
+              {m.tools && m.tools.length > 0 && (
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{ cursor: 'pointer', color: '#7fb0d6', fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase' }}>ᛥ actions taken ({m.tools.length})</summary>
+                  {m.tools.map((t, j) => (
+                    <div key={j} style={{ marginTop: 8, padding: 10, background: 'rgba(0,0,0,.4)', borderRadius: 3, fontSize: 12 }}>
+                      <div className="cap" style={{ color: t.ok ? '#7fb0d6' : '#e8a6b4', marginBottom: 4 }}>{t.ok ? '✓' : '✕'} {t.name} · {t.args.slice(0, 120)}</div>
+                      <div style={{ whiteSpace: 'pre-wrap', color: '#a9c2da' }}>{t.result.slice(0, 1400)}{t.result.length > 1400 ? '…' : ''}</div>
+                    </div>
+                  ))}
+                </details>
+              )}
               {m.sources && m.sources.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div className="cap" style={{ marginBottom: 6 }}>ᚱ the ravens brought — {m.sources.length} sources</div>

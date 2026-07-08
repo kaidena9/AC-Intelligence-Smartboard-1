@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { bridgeOnline, fetchStatus, fetchVaultTree, saveAgentSession } from '../lib/bridge'
+import { chatWithTools, summarizeTool, type ToolEvent } from '../lib/agentTools'
 import odyssey from '../assets/athena-odyssey.jpg'
 import mural from '../assets/athena-mural.jpg'
 import olympus from '../assets/athena-olympus.jpg'
@@ -53,7 +54,8 @@ const DEFAULTS: Delegator[] = [
   { id: 'muses', name: 'Muses · Imagery', operator: 'anthropic/claude-opus-4.8', bestFor: 'Art direction & image prompts — Opus directs, Gemini (multimodal) crafts detailed prompts, Grok adds creative variety', workers: ['google/gemini-3.1-pro-preview', 'x-ai/grok-4', 'z-ai/glm-4.7'] }
 ]
 
-interface Msg { role: 'user' | 'assistant'; content: string; via?: string; workings?: { model: string; out: string }[] }
+interface ToolLog { name: string; args: string; result: string; ok: boolean }
+interface Msg { role: 'user' | 'assistant'; content: string; via?: string; workings?: { model: string; out: string }[]; tools?: ToolLog[] }
 
 async function llm(model: string, messages: { role: string; content: string }[], effort?: string, maxTokens = 5000): Promise<string> {
   const body: Record<string, unknown> = { model, messages, max_tokens: maxTokens, usage: { include: true } }
@@ -208,14 +210,25 @@ export function Athena(): React.JSX.Element {
     mc[dk] = (mc[dk] || 0) + 1
     localStorage.setItem('athena-msgcount', JSON.stringify(mc))
     window.dispatchEvent(new Event('athena-cost'))
-    const sys = `You are Athena — Kaiden's operator agent in his Operations System. Direct, wise, concise.\n${brain || '(bridge offline — no personal context)'}`
+    const sys = `You are Athena — Kaiden's operator agent in his Operations System. Direct, wise, concise.\n${brain || '(bridge offline — no personal context)'}\n\nTOOLS — you have real hands on Kaiden's machine and GitHub. Use them to DO things, not just describe steps:\n• gh — the GitHub CLI as kaidena9 (issues, PRs, repos, releases, Actions, gh api). Write-capable.\n• git — git in his local repos (pass cwd).\n• read_file / list_dir — inspect his files for reference.\n• claude_task — hand a whole multi-step job to headless Claude Code.\nYou are fully autonomous: when asked to do something, execute it directly with tools and report the result. Chain multiple tool calls as needed. Copy identifiers (repo names, PR numbers, SHAs) exactly.`
     const history = msgs.slice(-8).map((m) => ({ role: m.role, content: m.content }))
     try {
       if (!keyOf()) throw new Error('No OpenRouter key — add it in Settings (Image generation card).')
       if (!active) {
         setBusy(`${short(model)} is thinking…`)
-        const out = await llm(model, [{ role: 'system', content: sys }, ...history, { role: 'user', content: q }], effort)
-        setMsgs((m) => [...m, { role: 'assistant', content: out, via: `${short(model)} · ${effort}` }])
+        const toolLog: ToolLog[] = []
+        const { content } = await chatWithTools(
+          model,
+          [{ role: 'system', content: sys }, ...history, { role: 'user', content: q }],
+          {
+            effort, maxTokens: maxTok,
+            onEvent: (e: ToolEvent) => {
+              toolLog.push({ name: e.name, args: JSON.stringify(e.args), result: e.result, ok: e.ok })
+              setBusy(`⚙ ${summarizeTool(e)}…`)
+            }
+          }
+        )
+        setMsgs((m) => [...m, { role: 'assistant', content, via: `${short(model)} · ${effort}${toolLog.length ? ` · ${toolLog.length} tool${toolLog.length > 1 ? 's' : ''}` : ''}`, tools: toolLog.length ? toolLog : undefined }])
       } else {
         const workers = active.workers.filter(Boolean) as string[]
         setBusy(`${active.name.split('·')[0].trim()} plans…`)
@@ -304,6 +317,17 @@ export function Athena(): React.JSX.Element {
                 <div key={i} className={m.role === 'user' ? 'msgu' : 'msga'} style={{ padding: '13px 17px', borderRadius: 4, margin: '12px 0', lineHeight: 1.65, fontSize: 15, whiteSpace: 'pre-wrap', marginLeft: m.role === 'user' ? '15%' : 0, marginRight: m.role === 'user' ? 0 : '8%' }}>
                   {m.via && <div className="via">{m.via}</div>}
                   {m.content}
+                  {m.tools && m.tools.length > 0 && (
+                    <details style={{ marginTop: 10 }}>
+                      <summary>actions taken ({m.tools.length})</summary>
+                      {m.tools.map((t, j) => (
+                        <div key={j} style={{ marginTop: 8, padding: 10, background: 'rgba(0,0,0,.4)', borderRadius: 3, fontSize: 12 }}>
+                          <div className="via" style={{ color: t.ok ? '#c9a227' : '#e8a0a0' }}>{t.ok ? '✓' : '✕'} {t.name} · {t.args.slice(0, 120)}</div>
+                          <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace,monospace', color: '#cdbf9c' }}>{t.result.slice(0, 1400)}{t.result.length > 1400 ? '…' : ''}</div>
+                        </div>
+                      ))}
+                    </details>
+                  )}
                   {m.workings && (
                     <details style={{ marginTop: 10 }}>
                       <summary>the workers' scrolls ({m.workings.length})</summary>
