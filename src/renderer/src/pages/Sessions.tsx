@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, Button } from '../components/ui'
 import { cn } from '../lib/util'
 import {
@@ -83,22 +83,37 @@ export function Sessions(): React.JSX.Element {
       })))
     }
   }
+  // Guards against a source switch landing a stale response / poll.
+  const pollRef = useRef(0)
   async function loadReport(src: Source): Promise<void> {
     setReportLoading(true); setReport(null)
-    const r = await fetchCoachReport(src)
+    const token = ++pollRef.current
+    const r = await fetchCoachReport(src)          // returns instantly now (stats from disk)
+    if (pollRef.current !== token) return
     setReport(r); setReportLoading(false)
+    if (r?.synthPending) void pollThemes(src, token)   // themes synth in the background
+  }
+  async function pollThemes(src: Source, token: number): Promise<void> {
+    for (let i = 0; i < 12; i++) {
+      await new Promise((res) => setTimeout(res, 5000))
+      if (pollRef.current !== token) return
+      const nr = await fetchCoachReport(src)
+      if (pollRef.current !== token) return
+      if (nr) { setReport(nr); if (!nr.synthPending) return }
+    }
   }
 
   useEffect(() => {
     void (async () => {
       const ok = await bridgeOnline(); setOnline(ok)
-      if (ok) { await loadRows(source); await loadReport(source) }
+      if (ok) await Promise.all([loadRows(source), loadReport(source)])
     })()
   }, [])
 
   async function switchTo(src: Source): Promise<void> {
+    pollRef.current++          // cancel any in-flight poll for the old source
     setSource(src); setSel(null); setErr(null); setRows([]); setReport(null); setBrowse(false)
-    if (online) { await loadRows(src); await loadReport(src) }
+    if (online) await Promise.all([loadRows(src), loadReport(src)])
   }
 
   async function grade(row: Row): Promise<void> {
@@ -155,7 +170,7 @@ export function Sessions(): React.JSX.Element {
       {err && <p className="rounded-lg border border-red/25 bg-red/10 px-3 py-2 text-[13px] text-red">{err}</p>}
 
       {online && reportLoading && (
-        <Card className="p-6 text-sm text-muted" interactive={false}>Synthesizing your coaching report across all graded sessions…</Card>
+        <Card className="p-6 text-sm text-muted" interactive={false}>Loading your coaching report…</Card>
       )}
 
       {online && !reportLoading && report && report.count === 0 && (
@@ -202,7 +217,10 @@ export function Sessions(): React.JSX.Element {
 
           {/* TOP FIXES */}
           <Card className="p-5" interactive={false}>
-            <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.18em] text-amber">Top fixes — across every session</div>
+            <div className="mb-2.5 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber">
+              Top fixes — across every session
+              {report.synthPending && <span className="animate-pulse text-[10px] font-normal normal-case tracking-normal text-subtle">clustering themes…</span>}
+            </div>
             <ol className="space-y-2">
               {report.topFixes.map((f, i) => (
                 <li key={i} className="flex gap-2.5 text-[13.5px] leading-relaxed text-muted">
@@ -210,7 +228,9 @@ export function Sessions(): React.JSX.Element {
                   <span>{f}</span>
                 </li>
               ))}
-              {report.topFixes.length === 0 && <li className="text-[13px] text-subtle">Synthesis unavailable — grade more sessions.</li>}
+              {report.topFixes.length === 0 && (
+                <li className="text-[13px] text-subtle">{report.synthPending ? `Clustering recurring themes across your ${report.count} graded sessions — this fills in shortly.` : 'Synthesis unavailable — grade more sessions.'}</li>
+              )}
             </ol>
           </Card>
 
@@ -221,6 +241,9 @@ export function Sessions(): React.JSX.Element {
               {report.strengths.map((s, i) => (
                 <li key={i} className="flex gap-2.5 text-[13.5px] leading-relaxed text-muted"><span className="shrink-0 text-green">+</span><span>{s}</span></li>
               ))}
+              {report.strengths.length === 0 && report.synthPending && (
+                <li className="text-[13px] text-subtle">Surfacing what you consistently do well…</li>
+              )}
             </ul>
           </Card>
 

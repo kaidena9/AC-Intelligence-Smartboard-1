@@ -116,6 +116,8 @@ export interface CoachReport {
   source: string; count: number; avg: number | null
   trend: number[]; distribution: Record<string, number>
   topFixes: string[]; strengths: string[]
+  synthPending?: boolean
 }
+// Returns instantly now (stats from disk); themes fill in via synthPending polling.
 export const fetchCoachReport = (source: string): Promise<CoachReport | null> =>
-  get(`/api/hub/coach-report?source=${source}`, 130000)
+  get(`/api/hub/coach-report?source=${source}`, 15000)
