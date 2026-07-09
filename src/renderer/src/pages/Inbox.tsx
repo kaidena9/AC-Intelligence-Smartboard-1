@@ -3,42 +3,28 @@ import { useInbox } from '../store/useInbox'
 import { Button } from '../components/ui'
 import { relativeTime, cn } from '../lib/util'
 import type { EmailMessage, Folder } from '../lib/email'
+import { TEMPLATES, loadVars, saveVars, type TemplateVars } from '../lib/emailTemplates'
 import {
-  IconMail,
-  IconReply,
-  IconArchive,
-  IconTrash,
-  IconStar,
-  IconSend,
-  IconPlus,
-  IconChevronLeft
+  IconMail, IconReply, IconArchive, IconTrash, IconStar, IconSend, IconPlus, IconSearch
 } from '../components/icons'
 
-const FOLDERS: { id: Folder; label: string }[] = [
+type View = Folder | 'starred'
+const NAV: { id: View; label: string }[] = [
   { id: 'inbox', label: 'Inbox' },
+  { id: 'starred', label: 'Starred' },
   { id: 'sent', label: 'Sent' },
   { id: 'archive', label: 'Archive' },
   { id: 'trash', label: 'Trash' }
 ]
-
 const CARD = 'rounded-2xl border border-border bg-surface shadow-[var(--shadow)]'
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-}
+const initials = (n: string): string => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+const emptyDraft = { to: '', subject: '', body: '' }
 
 export function Inbox(): React.JSX.Element {
   const account = useInbox((s) => s.account)
   const messages = useInbox((s) => s.messages)
-  const folder = useInbox((s) => s.folder)
   const selectedId = useInbox((s) => s.selectedId)
   const composeOpen = useInbox((s) => s.composeOpen)
-  const setFolder = useInbox((s) => s.setFolder)
   const select = useInbox((s) => s.select)
   const markRead = useInbox((s) => s.markRead)
   const toggleStar = useInbox((s) => s.toggleStar)
@@ -48,211 +34,214 @@ export function Inbox(): React.JSX.Element {
   const closeCompose = useInbox((s) => s.closeCompose)
   const send = useInbox((s) => s.send)
 
-  const [draft, setDraft] = useState({ to: '', subject: '', body: '' })
+  const [view, setView] = useState<View>('inbox')
+  const [q, setQ] = useState('')
+  const [draft, setDraft] = useState(emptyDraft)
+  const [tplOpen, setTplOpen] = useState(false)
+  const [sigOpen, setSigOpen] = useState(false)
+  const [vars, setVars] = useState<TemplateVars>(() => loadVars())
 
-  const unread = useMemo(
-    () => messages.filter((m) => m.folder === 'inbox' && !m.read).length,
-    [messages]
-  )
-  const list = useMemo(
-    () => messages.filter((m) => m.folder === folder).sort((a, b) => b.date - a.date),
-    [messages, folder]
-  )
+  const unread = useMemo(() => messages.filter((m) => m.folder === 'inbox' && !m.read).length, [messages])
+  const count = (v: View): number =>
+    v === 'starred' ? messages.filter((m) => m.starred && m.folder !== 'trash').length
+      : v === 'inbox' ? unread
+        : messages.filter((m) => m.folder === v).length
+
+  const list = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    let items = view === 'starred'
+      ? messages.filter((m) => m.starred && m.folder !== 'trash')
+      : messages.filter((m) => m.folder === view)
+    if (needle) items = items.filter((m) =>
+      [m.from.name, m.from.email, m.subject, m.preview, m.body].join(' ').toLowerCase().includes(needle))
+    return items.sort((a, b) => b.date - a.date)
+  }, [messages, view, q])
+
   const selected = messages.find((m) => m.id === selectedId) ?? null
 
   function startCompose(prefill?: Partial<typeof draft>): void {
-    setDraft({ to: '', subject: '', body: '', ...prefill })
-    openCompose()
+    setDraft({ ...emptyDraft, ...prefill }); setTplOpen(false); setSigOpen(false); openCompose()
   }
   function reply(m: EmailMessage): void {
     startCompose({
       to: m.from.email,
       subject: m.subject.startsWith('Re:') ? m.subject : `Re: ${m.subject}`,
-      body: `\n\n---\nOn ${new Date(m.date).toLocaleString()}, ${m.from.name} wrote:\n${m.body}`
+      body: `\n\n———\nOn ${new Date(m.date).toLocaleString()}, ${m.from.name} <${m.from.email}> wrote:\n${m.body}`
     })
   }
+  function forward(m: EmailMessage): void {
+    startCompose({
+      to: '',
+      subject: m.subject.startsWith('Fwd:') ? m.subject : `Fwd: ${m.subject}`,
+      body: `\n\n———— Forwarded message ————\nFrom: ${m.from.name} <${m.from.email}>\nSubject: ${m.subject}\n\n${m.body}`
+    })
+  }
+  function applyTemplate(id: string): void {
+    const t = TEMPLATES.find((x) => x.id === id)
+    if (!t) return
+    const { subject, body } = t.build(vars)
+    setDraft((d) => ({ ...d, subject, body }))
+    setTplOpen(false)
+  }
+  function saveSig(): void { saveVars(vars); setSigOpen(false) }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
-          {FOLDERS.map((f) => {
-            const count =
-              f.id === 'inbox' ? unread : messages.filter((m) => m.folder === f.id).length
+    <div className="flex h-full gap-4">
+      {/* Left rail */}
+      <div className="flex w-[190px] shrink-0 flex-col gap-3">
+        <Button onClick={() => startCompose()} className="w-full justify-center">
+          <IconPlus className="h-4 w-4" /> Compose
+        </Button>
+        <nav className={cn(CARD, 'flex-1 overflow-hidden p-1.5')}>
+          {NAV.map((n) => {
+            const c = count(n.id)
+            const on = view === n.id
             return (
-              <button
-                key={f.id}
-                onClick={() => setFolder(f.id)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition',
-                  folder === f.id ? 'bg-accent-soft text-accent' : 'text-muted hover:text-text'
-                )}
-              >
-                {f.label}
-                {count > 0 && (
-                  <span
-                    className={cn(
-                      'rounded-full px-1.5 text-[10px] font-bold',
-                      folder === f.id ? 'bg-accent text-[var(--ink-fg)]' : 'bg-bg text-subtle'
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
+              <button key={n.id} onClick={() => { setView(n.id); select(null) }}
+                className={cn('flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] font-semibold transition',
+                  on ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-bg hover:text-text')}>
+                <span className="flex items-center gap-2">
+                  {n.id === 'starred' && <IconStar className="h-3.5 w-3.5" />}{n.label}
+                </span>
+                {c > 0 && <span className={cn('rounded-full px-1.5 text-[10px] font-bold', on ? 'bg-accent text-[var(--ink-fg)]' : 'bg-bg text-subtle')}>{c}</span>}
+              </button>
+            )
+          })}
+        </nav>
+        <div className="px-2 text-[10.5px] leading-tight text-subtle">
+          <div className="font-semibold text-muted">AC Intelligence</div>
+          {account}
+        </div>
+      </div>
+
+      {/* Message list */}
+      <div className={cn(CARD, 'flex w-[350px] shrink-0 flex-col overflow-hidden')}>
+        <div className="relative border-b border-border p-2.5">
+          <IconSearch className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search mail…"
+            className="w-full rounded-full border border-border bg-bg py-1.5 pl-9 pr-3 text-[13px] text-text outline-none focus:border-accent" />
+        </div>
+        <div className="flex-1 divide-y divide-border overflow-y-auto">
+          {list.length === 0 ? (
+            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
+              {q ? 'No matches.' : `Nothing in ${view}.`}
+            </div>
+          ) : list.map((m) => {
+            const isSel = selected?.id === m.id
+            return (
+              <button key={m.id} onClick={() => select(m.id)}
+                className={cn('group flex w-full gap-3 px-3.5 py-3 text-left transition', isSel ? 'bg-accent-soft' : 'hover:bg-bg')}>
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-bold text-muted">{initials(m.from.name)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={cn('min-w-0 flex-1 truncate text-sm', m.read ? 'font-medium text-text' : 'font-bold text-text')}>{m.from.name}</span>
+                    <span onClick={(e) => { e.stopPropagation(); toggleStar(m.id) }}
+                      className={cn('shrink-0 opacity-0 transition group-hover:opacity-100', m.starred && 'opacity-100')}>
+                      <IconStar className={cn('h-3.5 w-3.5', m.starred ? 'text-amber' : 'text-subtle')} />
+                    </span>
+                    <span className="shrink-0 text-[11px] text-subtle">{relativeTime(m.date)}</span>
+                  </div>
+                  <div className={cn('truncate text-[13px]', m.read ? 'text-muted' : 'font-semibold text-text')}>{m.subject}</div>
+                  <div className="truncate text-[12px] text-subtle">{m.preview}</div>
+                </div>
               </button>
             )
           })}
         </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-xs text-subtle sm:inline">{account}</span>
-          <Button onClick={() => startCompose()}>
-            <IconPlus className="h-4 w-4" /> Compose
-          </Button>
-        </div>
       </div>
 
-      {/* Two-pane: list + reading */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
-        {/* Message list */}
-        <div className={cn(CARD, 'flex min-h-0 flex-col overflow-hidden')}>
-          <div className="flex-1 divide-y divide-border overflow-y-auto">
-            {list.length === 0 ? (
-              <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
-                Nothing in {folder}.
-              </div>
-            ) : (
-              list.map((m) => {
-                const isSel = selected?.id === m.id
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => select(m.id)}
-                    className={cn(
-                      'flex w-full gap-3 px-4 py-3 text-left transition',
-                      isSel ? 'bg-accent-soft' : 'hover:bg-bg'
-                    )}
-                  >
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-bold text-muted">
-                      {initials(m.from.name)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'min-w-0 flex-1 truncate text-sm',
-                            m.read ? 'font-medium text-text' : 'font-bold text-text'
-                          )}
-                        >
-                          {m.from.name}
-                        </span>
-                        {!m.read && folder === 'inbox' && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
-                        )}
-                        <span className="shrink-0 text-[11px] text-subtle">
-                          {relativeTime(m.date)}
-                        </span>
-                      </div>
-                      <div className={cn('truncate text-[13px]', m.read ? 'text-muted' : 'font-semibold text-text')}>
-                        {m.subject}
-                      </div>
-                      <div className="truncate text-[12px] text-subtle">{m.preview}</div>
-                    </div>
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Reading pane */}
-        <div className={cn(CARD, 'flex min-h-0 flex-col overflow-hidden')}>
-          {selected ? (
-            <>
-              <div className="flex items-start justify-between gap-3 border-b border-border p-5">
-                <div className="min-w-0">
-                  <h2 className="font-display text-xl font-semibold text-text">{selected.subject}</h2>
-                  <div className="mt-1.5 flex items-center gap-2 text-sm">
-                    <span className="font-semibold text-text">{selected.from.name}</span>
-                    <span className="text-subtle">&lt;{selected.from.email}&gt;</span>
-                  </div>
-                  <div className="text-xs text-subtle">
-                    to {selected.to} · {new Date(selected.date).toLocaleString()}
-                  </div>
+      {/* Reading pane */}
+      <div className={cn(CARD, 'flex min-w-0 flex-1 flex-col overflow-hidden')}>
+        {selected ? (
+          <>
+            <div className="flex items-start justify-between gap-3 border-b border-border p-5">
+              <div className="min-w-0">
+                <h2 className="font-display text-xl font-semibold text-text">{selected.subject}</h2>
+                <div className="mt-1.5 flex items-center gap-2 text-sm">
+                  <span className="font-semibold text-text">{selected.from.name}</span>
+                  <span className="text-subtle">&lt;{selected.from.email}&gt;</span>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <IconAction onClick={() => toggleStar(selected.id)} title="Star" active={selected.starred}>
-                    <IconStar className="h-4 w-4" />
-                  </IconAction>
-                  <IconAction onClick={() => markRead(selected.id, false)} title="Mark unread">
-                    <IconMail className="h-4 w-4" />
-                  </IconAction>
-                  <IconAction onClick={() => archive(selected.id)} title="Archive">
-                    <IconArchive className="h-4 w-4" />
-                  </IconAction>
-                  <IconAction onClick={() => trash(selected.id)} title="Delete" danger>
-                    <IconTrash className="h-4 w-4" />
-                  </IconAction>
-                </div>
+                <div className="text-xs text-subtle">to {selected.to} · {new Date(selected.date).toLocaleString()}</div>
               </div>
-              <div className="flex-1 overflow-y-auto p-5">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">{selected.body}</p>
+              <div className="flex shrink-0 items-center gap-1">
+                <IconAction onClick={() => toggleStar(selected.id)} title="Star" active={selected.starred}><IconStar className="h-4 w-4" /></IconAction>
+                <IconAction onClick={() => markRead(selected.id, false)} title="Mark unread"><IconMail className="h-4 w-4" /></IconAction>
+                <IconAction onClick={() => archive(selected.id)} title="Archive"><IconArchive className="h-4 w-4" /></IconAction>
+                <IconAction onClick={() => trash(selected.id)} title="Delete" danger><IconTrash className="h-4 w-4" /></IconAction>
               </div>
-              <div className="border-t border-border p-4">
-                <Button variant="subtle" onClick={() => reply(selected)}>
-                  <IconReply className="h-4 w-4" /> Reply
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted">
-              <IconMail className="mb-2 h-8 w-8 text-subtle" />
-              Select a message to read.
             </div>
-          )}
-        </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">{selected.body}</p>
+            </div>
+            <div className="flex gap-2 border-t border-border p-4">
+              <Button variant="subtle" onClick={() => reply(selected)}><IconReply className="h-4 w-4" /> Reply</Button>
+              <Button variant="ghost" onClick={() => forward(selected)}>Forward</Button>
+            </div>
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted">
+            <IconMail className="mb-2 h-8 w-8 text-subtle" />
+            Select a message to read.
+          </div>
+        )}
       </div>
 
-      {/* Compose modal */}
+      {/* Compose */}
       {composeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={closeCompose}>
-          <div
-            className={cn(CARD, 'w-full max-w-lg')}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className={cn(CARD, 'flex w-full max-w-xl flex-col')} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
               <h2 className="font-display text-base font-semibold text-text">New message</h2>
-              <button onClick={closeCompose} className="text-muted hover:text-text">
-                <IconChevronLeft className="h-4 w-4 rotate-90" />
-              </button>
+              <button onClick={closeCompose} className="text-lg leading-none text-muted hover:text-text">×</button>
             </div>
-            <div className="space-y-3 p-5">
-              <input
-                value={draft.to}
-                onChange={(e) => setDraft({ ...draft, to: e.target.value })}
-                placeholder="To"
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
-              />
-              <input
-                value={draft.subject}
-                onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
-                placeholder="Subject"
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
-              />
-              <textarea
-                value={draft.body}
-                onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-                placeholder="Write your message…"
-                className="min-h-40 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent"
-              />
+            <div className="space-y-2.5 p-5">
+              <input value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} placeholder="To"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+              <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} placeholder="Subject"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+              <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Write your message…"
+                className="min-h-56 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm leading-relaxed text-text outline-none focus:border-accent" />
             </div>
-            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-              <Button variant="ghost" onClick={closeCompose}>
-                Discard
-              </Button>
-              <Button onClick={() => send(draft)} disabled={!draft.to.trim()}>
-                <IconSend className="h-4 w-4" /> Send
-              </Button>
+
+            {/* Signature editor */}
+            {sigOpen && (
+              <div className="mx-5 mb-3 rounded-lg border border-border bg-bg p-3">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-subtle">Signature — fills your templates</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {([['senderName', 'Your name'], ['phone', 'Phone'], ['calendarLink', 'Booking link'], ['company', 'Company']] as const).map(([k, ph]) => (
+                    <input key={k} value={vars[k]} onChange={(e) => setVars({ ...vars, [k]: e.target.value })} placeholder={ph}
+                      className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent" />
+                  ))}
+                </div>
+                <div className="mt-2 flex justify-end"><button onClick={saveSig} className="text-[12px] font-semibold text-accent hover:underline">Save signature</button></div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
+              <div className="relative flex items-center gap-2">
+                <button onClick={() => setTplOpen((v) => !v)}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-bg px-3 py-1.5 text-[12.5px] font-semibold text-muted transition hover:border-accent hover:text-accent">
+                  ✦ Templates ▾
+                </button>
+                <button onClick={() => setSigOpen((v) => !v)} title="Edit signature"
+                  className="text-[11.5px] text-subtle hover:text-text">✎ signature</button>
+                {tplOpen && (
+                  <div className={cn(CARD, 'absolute bottom-[115%] left-0 z-10 w-72 overflow-hidden p-1')}>
+                    {TEMPLATES.map((t) => (
+                      <button key={t.id} onClick={() => applyTemplate(t.id)}
+                        className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-accent-soft">
+                        <div className="text-[13px] font-semibold text-text">{t.label}</div>
+                        <div className="text-[11.5px] text-subtle">{t.desc}</div>
+                      </button>
+                    ))}
+                    <div className="border-t border-border px-3 py-1.5 text-[10.5px] text-subtle">Fill [bracketed] blanks per business.</div>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={closeCompose}>Discard</Button>
+                <Button onClick={() => send(draft)} disabled={!draft.to.trim()}><IconSend className="h-4 w-4" /> Send</Button>
+              </div>
             </div>
           </div>
         </div>
@@ -261,28 +250,13 @@ export function Inbox(): React.JSX.Element {
   )
 }
 
-function IconAction({
-  onClick,
-  title,
-  active,
-  danger,
-  children
-}: {
-  onClick: () => void
-  title: string
-  active?: boolean
-  danger?: boolean
-  children: React.ReactNode
+function IconAction({ onClick, title, active, danger, children }: {
+  onClick: () => void; title: string; active?: boolean; danger?: boolean; children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={cn(
-        'flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface transition',
-        active ? 'text-amber' : danger ? 'text-muted hover:text-red' : 'text-muted hover:border-accent hover:text-accent'
-      )}
-    >
+    <button onClick={onClick} title={title}
+      className={cn('flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface transition',
+        active ? 'text-amber' : danger ? 'text-muted hover:text-red' : 'text-muted hover:border-accent hover:text-accent')}>
       {children}
     </button>
   )
