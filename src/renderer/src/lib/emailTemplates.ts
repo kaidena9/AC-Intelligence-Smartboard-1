@@ -18,7 +18,7 @@ const K_VARS = 'wc-email-vars'
 export const DEFAULT_VARS: TemplateVars = {
   senderName: 'Kaiden Amaro',
   company: 'AC Intelligence',
-  phone: '[your phone]',          // set in Inbox → Signature
+  phone: '630-644-7147',
   calendarLink: '[your booking link]',
   fromEmail: 'consult@acintelligence.net'
 }
