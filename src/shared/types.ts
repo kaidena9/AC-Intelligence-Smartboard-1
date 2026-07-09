@@ -136,7 +136,7 @@ export const STATUS_LABELS: Record<ProjectStatus, string> = {
  * The combined "AC Intelligence — Master Leads" Google Sheet the Leads tab
  * reads from. Stored in settings so it can be re-pointed without a rebuild.
  */
-export const DEFAULT_LEADS_SHEET_ID = '1BmzHBPFNDSSROBjvrm1RSzBBH6GCP4LYKdb5Ij7zSh8'
+export const DEFAULT_LEADS_SHEET_ID = '1kktwD9VVaRj7FaBRxzkos3XZsTzHJ0YoyJHP8hwCvyI'
 
 /** One outreach lead, mapped 1:1 from the Prospect-CRM-format sheet columns. */
 export interface Lead {
