@@ -148,6 +148,33 @@ export function seedMessages(): EmailMessage[] {
       "Build failed on house-website (main)\n\nError: Module not found: ./styles/theme\n  at src/App.tsx:3\n\nCheck the import path and re-run the workflow.",
       1500,
       { read: true }
+    ),
+    m(
+      'e9',
+      'Frankie Campbell',
+      'frankie.campbell.chicago@gmail.com',
+      'Split the Chicago list before we start dialing',
+      'Hey — I took the top of the sheet, can you start from the barbershops down? Also call me after 3.',
+      "Hey Kaiden,\n\nI took the top of the cold-call sheet — can you start from the barbershops down so we don't double-dial anyone?\n\nAlso, give me a call after 3 and we'll go over the pitch for the salons.\n\n— Frankie",
+      35
+    ),
+    m(
+      'e10',
+      'AC Intelligence Website',
+      'leads@acintelligence.net',
+      'New lead from your contact form',
+      'A new inquiry came in through the website: "Do you build sites for barbershops? Give me a call."',
+      "New website form submission\n\nName: Miguel Torres\nBusiness: Torres Fresh Cuts\nPhone: (773) 555-0148\nEmail: torresfreshcuts@gmail.com\nMessage: \"Do you build websites for barbershops? A few guys recommended you. Give me a call.\"\n\nSubmitted via the contact form on acintelligence.net.",
+      70
+    ),
+    m(
+      'e11',
+      'Rosa — Delara\'s Salon',
+      'delarassalon@gmail.com',
+      'Re: A website preview for Delara\'s',
+      "Hi Kaiden — yes we'd love to see it! We've been meaning to get a real website. When can you call?",
+      "Hi Kaiden,\n\nThanks for reaching out — yes, we'd love to see the preview! We've been meaning to get a real website for a while but never had the time.\n\nWhen's a good time for you to call? Mornings before 11 are best for us.\n\nThank you,\nRosa\nDelara's Salon",
+      95
     )
   ]
 }

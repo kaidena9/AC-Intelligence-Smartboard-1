@@ -2,20 +2,16 @@ import { useMemo, useState } from 'react'
 import { useInbox } from '../store/useInbox'
 import { Button } from '../components/ui'
 import { relativeTime, cn } from '../lib/util'
-import type { EmailMessage, Folder } from '../lib/email'
+import type { EmailMessage } from '../lib/email'
 import { TEMPLATES, loadVars, saveVars, type TemplateVars } from '../lib/emailTemplates'
+import {
+  classify, setCategoryOverride, CATEGORY_META, CATEGORY_ORDER, type Category, type Classification
+} from '../lib/emailClassify'
 import {
   IconMail, IconReply, IconArchive, IconTrash, IconStar, IconSend, IconPlus, IconSearch
 } from '../components/icons'
 
-type View = Folder | 'starred'
-const NAV: { id: View; label: string }[] = [
-  { id: 'inbox', label: 'Inbox' },
-  { id: 'starred', label: 'Starred' },
-  { id: 'sent', label: 'Sent' },
-  { id: 'archive', label: 'Archive' },
-  { id: 'trash', label: 'Trash' }
-]
+type View = 'all' | Category | 'flagged' | 'starred' | 'sent' | 'archive' | 'trash'
 const CARD = 'rounded-2xl border border-border bg-surface shadow-[var(--shadow)]'
 const initials = (n: string): string => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
 const emptyDraft = { to: '', subject: '', body: '' }
@@ -34,83 +30,105 @@ export function Inbox(): React.JSX.Element {
   const closeCompose = useInbox((s) => s.closeCompose)
   const send = useInbox((s) => s.send)
 
-  const [view, setView] = useState<View>('inbox')
+  const [view, setView] = useState<View>('all')
   const [q, setQ] = useState('')
   const [draft, setDraft] = useState(emptyDraft)
   const [tplOpen, setTplOpen] = useState(false)
   const [sigOpen, setSigOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
   const [vars, setVars] = useState<TemplateVars>(() => loadVars())
+  const [catV, setCatV] = useState(0) // bump to recompute after a manual move
 
-  const unread = useMemo(() => messages.filter((m) => m.folder === 'inbox' && !m.read).length, [messages])
-  const count = (v: View): number =>
-    v === 'starred' ? messages.filter((m) => m.starred && m.folder !== 'trash').length
-      : v === 'inbox' ? unread
-        : messages.filter((m) => m.folder === v).length
+  // Read each email's content and sort it.
+  const cls = useMemo(() => {
+    const map: Record<string, Classification> = {}
+    for (const m of messages) map[m.id] = classify(m)
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, catV])
+
+  const inboxMsgs = useMemo(() => messages.filter((m) => m.folder === 'inbox'), [messages])
+
+  const count = (v: View): number => {
+    if (v === 'all') return inboxMsgs.filter((m) => !m.read).length
+    if (v === 'flagged') return inboxMsgs.filter((m) => cls[m.id]?.flagged && !m.read).length
+    if (v === 'starred') return messages.filter((m) => m.starred && m.folder !== 'trash').length
+    if (v === 'sent' || v === 'archive' || v === 'trash') return messages.filter((m) => m.folder === v).length
+    return inboxMsgs.filter((m) => cls[m.id]?.category === v && !m.read).length
+  }
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    let items = view === 'starred'
-      ? messages.filter((m) => m.starred && m.folder !== 'trash')
-      : messages.filter((m) => m.folder === view)
-    if (needle) items = items.filter((m) =>
-      [m.from.name, m.from.email, m.subject, m.preview, m.body].join(' ').toLowerCase().includes(needle))
-    return items.sort((a, b) => b.date - a.date)
-  }, [messages, view, q])
+    let items: EmailMessage[]
+    if (view === 'all') items = inboxMsgs
+    else if (view === 'flagged') items = inboxMsgs.filter((m) => cls[m.id]?.flagged)
+    else if (view === 'starred') items = messages.filter((m) => m.starred && m.folder !== 'trash')
+    else if (view === 'sent' || view === 'archive' || view === 'trash') items = messages.filter((m) => m.folder === view)
+    else items = inboxMsgs.filter((m) => cls[m.id]?.category === view)
+    if (needle) items = items.filter((m) => [m.from.name, m.from.email, m.subject, m.preview, m.body].join(' ').toLowerCase().includes(needle))
+    return [...items].sort((a, b) => b.date - a.date)
+  }, [messages, inboxMsgs, view, q, cls])
 
   const selected = messages.find((m) => m.id === selectedId) ?? null
+  const selCls = selected ? cls[selected.id] : null
 
   function startCompose(prefill?: Partial<typeof draft>): void {
     setDraft({ ...emptyDraft, ...prefill }); setTplOpen(false); setSigOpen(false); openCompose()
   }
   function reply(m: EmailMessage): void {
-    startCompose({
-      to: m.from.email,
-      subject: m.subject.startsWith('Re:') ? m.subject : `Re: ${m.subject}`,
-      body: `\n\n———\nOn ${new Date(m.date).toLocaleString()}, ${m.from.name} <${m.from.email}> wrote:\n${m.body}`
-    })
+    startCompose({ to: m.from.email, subject: m.subject.startsWith('Re:') ? m.subject : `Re: ${m.subject}`,
+      body: `\n\n———\nOn ${new Date(m.date).toLocaleString()}, ${m.from.name} <${m.from.email}> wrote:\n${m.body}` })
   }
   function forward(m: EmailMessage): void {
-    startCompose({
-      to: '',
-      subject: m.subject.startsWith('Fwd:') ? m.subject : `Fwd: ${m.subject}`,
-      body: `\n\n———— Forwarded message ————\nFrom: ${m.from.name} <${m.from.email}>\nSubject: ${m.subject}\n\n${m.body}`
-    })
+    startCompose({ to: '', subject: m.subject.startsWith('Fwd:') ? m.subject : `Fwd: ${m.subject}`,
+      body: `\n\n———— Forwarded message ————\nFrom: ${m.from.name} <${m.from.email}>\nSubject: ${m.subject}\n\n${m.body}` })
   }
   function applyTemplate(id: string): void {
-    const t = TEMPLATES.find((x) => x.id === id)
-    if (!t) return
-    const { subject, body } = t.build(vars)
-    setDraft((d) => ({ ...d, subject, body }))
-    setTplOpen(false)
+    const t = TEMPLATES.find((x) => x.id === id); if (!t) return
+    const { subject, body } = t.build(vars); setDraft((d) => ({ ...d, subject, body })); setTplOpen(false)
   }
-  function saveSig(): void { saveVars(vars); setSigOpen(false) }
+  function moveTo(cat: Category | null): void {
+    if (selected) { setCategoryOverride(selected.id, cat); setCatV((v) => v + 1); setMoveOpen(false) }
+  }
+
+  const PRIMARY: { id: View; label: string; color?: string }[] = [
+    { id: 'all', label: 'All Mail' },
+    ...CATEGORY_ORDER.map((c) => ({ id: c as View, label: CATEGORY_META[c].label, color: CATEGORY_META[c].color }))
+  ]
+  const SECONDARY: { id: View; label: string }[] = [
+    { id: 'flagged', label: 'Flagged' }, { id: 'starred', label: 'Starred' },
+    { id: 'sent', label: 'Sent' }, { id: 'archive', label: 'Archive' }, { id: 'trash', label: 'Trash' }
+  ]
+
+  const NavRow = ({ n }: { n: { id: View; label: string; color?: string } }): React.JSX.Element => {
+    const on = view === n.id; const c = count(n.id)
+    return (
+      <button onClick={() => { setView(n.id); select(null) }}
+        className={cn('flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] font-semibold transition',
+          on ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-bg hover:text-text')}>
+        <span className="flex items-center gap-2">
+          {n.color && <span className="h-2 w-2 rounded-full" style={{ background: n.color }} />}
+          {n.id === 'flagged' && <span className="text-amber">⚑</span>}
+          {n.id === 'starred' && <IconStar className="h-3.5 w-3.5" />}
+          {n.label}
+        </span>
+        {c > 0 && <span className={cn('rounded-full px-1.5 text-[10px] font-bold', on ? 'bg-accent text-[var(--ink-fg)]' : 'bg-bg text-subtle')}>{c}</span>}
+      </button>
+    )
+  }
 
   return (
     <div className="flex h-full gap-4">
       {/* Left rail */}
-      <div className="flex w-[190px] shrink-0 flex-col gap-3">
-        <Button onClick={() => startCompose()} className="w-full justify-center">
-          <IconPlus className="h-4 w-4" /> Compose
-        </Button>
-        <nav className={cn(CARD, 'flex-1 overflow-hidden p-1.5')}>
-          {NAV.map((n) => {
-            const c = count(n.id)
-            const on = view === n.id
-            return (
-              <button key={n.id} onClick={() => { setView(n.id); select(null) }}
-                className={cn('flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] font-semibold transition',
-                  on ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-bg hover:text-text')}>
-                <span className="flex items-center gap-2">
-                  {n.id === 'starred' && <IconStar className="h-3.5 w-3.5" />}{n.label}
-                </span>
-                {c > 0 && <span className={cn('rounded-full px-1.5 text-[10px] font-bold', on ? 'bg-accent text-[var(--ink-fg)]' : 'bg-bg text-subtle')}>{c}</span>}
-              </button>
-            )
-          })}
+      <div className="flex w-[200px] shrink-0 flex-col gap-3">
+        <Button onClick={() => startCompose()} className="w-full justify-center"><IconPlus className="h-4 w-4" /> Compose</Button>
+        <nav className={cn(CARD, 'flex-1 overflow-y-auto p-1.5')}>
+          {PRIMARY.map((n) => <NavRow key={n.id} n={n} />)}
+          <div className="my-1.5 border-t border-border" />
+          {SECONDARY.map((n) => <NavRow key={n.id} n={n} />)}
         </nav>
         <div className="px-2 text-[10.5px] leading-tight text-subtle">
-          <div className="font-semibold text-muted">AC Intelligence</div>
-          {account}
+          <div className="font-semibold text-muted">AC Intelligence</div>{account}
         </div>
       </div>
 
@@ -123,11 +141,9 @@ export function Inbox(): React.JSX.Element {
         </div>
         <div className="flex-1 divide-y divide-border overflow-y-auto">
           {list.length === 0 ? (
-            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">
-              {q ? 'No matches.' : `Nothing in ${view}.`}
-            </div>
+            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">{q ? 'No matches.' : 'Nothing here.'}</div>
           ) : list.map((m) => {
-            const isSel = selected?.id === m.id
+            const isSel = selected?.id === m.id; const cc = cls[m.id]
             return (
               <button key={m.id} onClick={() => select(m.id)}
                 className={cn('group flex w-full gap-3 px-3.5 py-3 text-left transition', isSel ? 'bg-accent-soft' : 'hover:bg-bg')}>
@@ -135,8 +151,9 @@ export function Inbox(): React.JSX.Element {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className={cn('min-w-0 flex-1 truncate text-sm', m.read ? 'font-medium text-text' : 'font-bold text-text')}>{m.from.name}</span>
-                    <span onClick={(e) => { e.stopPropagation(); toggleStar(m.id) }}
-                      className={cn('shrink-0 opacity-0 transition group-hover:opacity-100', m.starred && 'opacity-100')}>
+                    {cc?.category && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: CATEGORY_META[cc.category].color }} title={CATEGORY_META[cc.category].label} />}
+                    {cc?.flagged && <span className="shrink-0 text-[11px] text-amber" title="Unsure — flagged in All Mail">⚑</span>}
+                    <span onClick={(e) => { e.stopPropagation(); toggleStar(m.id) }} className={cn('shrink-0 opacity-0 transition group-hover:opacity-100', m.starred && 'opacity-100')}>
                       <IconStar className={cn('h-3.5 w-3.5', m.starred ? 'text-amber' : 'text-subtle')} />
                     </span>
                     <span className="shrink-0 text-[11px] text-subtle">{relativeTime(m.date)}</span>
@@ -161,7 +178,28 @@ export function Inbox(): React.JSX.Element {
                   <span className="font-semibold text-text">{selected.from.name}</span>
                   <span className="text-subtle">&lt;{selected.from.email}&gt;</span>
                 </div>
-                <div className="text-xs text-subtle">to {selected.to} · {new Date(selected.date).toLocaleString()}</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-subtle">
+                  <span>to {selected.to} · {new Date(selected.date).toLocaleString()}</span>
+                  {/* category chip + move */}
+                  <span className="relative">
+                    <button onClick={() => setMoveOpen((v) => !v)} className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10.5px] font-semibold hover:border-accent"
+                      style={selCls?.category ? { color: CATEGORY_META[selCls.category].color } : undefined}>
+                      {selCls?.category ? <><span className="h-1.5 w-1.5 rounded-full" style={{ background: CATEGORY_META[selCls.category].color }} />{CATEGORY_META[selCls.category].label}</>
+                        : selCls?.flagged ? <span className="text-amber">⚑ Flagged</span> : 'Uncategorized'}
+                      {selCls?.manual && <span className="text-subtle">·moved</span>} ▾
+                    </button>
+                    {moveOpen && (
+                      <span className={cn(CARD, 'absolute left-0 top-[130%] z-10 block w-44 p-1')}>
+                        {CATEGORY_ORDER.map((c) => (
+                          <button key={c} onClick={() => moveTo(c)} className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] text-text hover:bg-accent-soft">
+                            <span className="h-2 w-2 rounded-full" style={{ background: CATEGORY_META[c].color }} />{CATEGORY_META[c].label}
+                          </button>
+                        ))}
+                        <button onClick={() => moveTo(null)} className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12px] text-subtle hover:bg-bg">Reset to auto</button>
+                      </span>
+                    )}
+                  </span>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <IconAction onClick={() => toggleStar(selected.id)} title="Star" active={selected.starred}><IconStar className="h-4 w-4" /></IconAction>
@@ -170,19 +208,14 @@ export function Inbox(): React.JSX.Element {
                 <IconAction onClick={() => trash(selected.id)} title="Delete" danger><IconTrash className="h-4 w-4" /></IconAction>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-5">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-text">{selected.body}</p>
-            </div>
+            <div className="flex-1 overflow-y-auto p-5"><p className="whitespace-pre-wrap text-sm leading-relaxed text-text">{selected.body}</p></div>
             <div className="flex gap-2 border-t border-border p-4">
               <Button variant="subtle" onClick={() => reply(selected)}><IconReply className="h-4 w-4" /> Reply</Button>
               <Button variant="ghost" onClick={() => forward(selected)}>Forward</Button>
             </div>
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted">
-            <IconMail className="mb-2 h-8 w-8 text-subtle" />
-            Select a message to read.
-          </div>
+          <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted"><IconMail className="mb-2 h-8 w-8 text-subtle" />Select a message to read.</div>
         )}
       </div>
 
@@ -195,41 +228,29 @@ export function Inbox(): React.JSX.Element {
               <button onClick={closeCompose} className="text-lg leading-none text-muted hover:text-text">×</button>
             </div>
             <div className="space-y-2.5 p-5">
-              <input value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} placeholder="To"
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
-              <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} placeholder="Subject"
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
-              <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Write your message…"
-                className="min-h-56 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm leading-relaxed text-text outline-none focus:border-accent" />
+              <input value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} placeholder="To" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+              <input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} placeholder="Subject" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text outline-none focus:border-accent" />
+              <textarea value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Write your message…" className="min-h-56 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm leading-relaxed text-text outline-none focus:border-accent" />
             </div>
-
-            {/* Signature editor */}
             {sigOpen && (
               <div className="mx-5 mb-3 rounded-lg border border-border bg-bg p-3">
                 <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-subtle">Signature — fills your templates</div>
                 <div className="grid grid-cols-2 gap-2">
                   {([['senderName', 'Your name'], ['phone', 'Phone'], ['calendarLink', 'Booking link'], ['company', 'Company']] as const).map(([k, ph]) => (
-                    <input key={k} value={vars[k]} onChange={(e) => setVars({ ...vars, [k]: e.target.value })} placeholder={ph}
-                      className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent" />
+                    <input key={k} value={vars[k]} onChange={(e) => setVars({ ...vars, [k]: e.target.value })} placeholder={ph} className="rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent" />
                   ))}
                 </div>
-                <div className="mt-2 flex justify-end"><button onClick={saveSig} className="text-[12px] font-semibold text-accent hover:underline">Save signature</button></div>
+                <div className="mt-2 flex justify-end"><button onClick={() => { saveVars(vars); setSigOpen(false) }} className="text-[12px] font-semibold text-accent hover:underline">Save signature</button></div>
               </div>
             )}
-
             <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
               <div className="relative flex items-center gap-2">
-                <button onClick={() => setTplOpen((v) => !v)}
-                  className="flex items-center gap-1.5 rounded-lg border border-border bg-bg px-3 py-1.5 text-[12.5px] font-semibold text-muted transition hover:border-accent hover:text-accent">
-                  ✦ Templates ▾
-                </button>
-                <button onClick={() => setSigOpen((v) => !v)} title="Edit signature"
-                  className="text-[11.5px] text-subtle hover:text-text">✎ signature</button>
+                <button onClick={() => setTplOpen((v) => !v)} className="flex items-center gap-1.5 rounded-lg border border-border bg-bg px-3 py-1.5 text-[12.5px] font-semibold text-muted transition hover:border-accent hover:text-accent">✦ Templates ▾</button>
+                <button onClick={() => setSigOpen((v) => !v)} title="Edit signature" className="text-[11.5px] text-subtle hover:text-text">✎ signature</button>
                 {tplOpen && (
                   <div className={cn(CARD, 'absolute bottom-[115%] left-0 z-10 w-72 overflow-hidden p-1')}>
                     {TEMPLATES.map((t) => (
-                      <button key={t.id} onClick={() => applyTemplate(t.id)}
-                        className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-accent-soft">
+                      <button key={t.id} onClick={() => applyTemplate(t.id)} className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-accent-soft">
                         <div className="text-[13px] font-semibold text-text">{t.label}</div>
                         <div className="text-[11.5px] text-subtle">{t.desc}</div>
                       </button>
