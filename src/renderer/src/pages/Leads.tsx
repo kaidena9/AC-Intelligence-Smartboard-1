@@ -57,7 +57,6 @@ function LeadCard({
   const tel = telHref(lead.phone)
   const eff = effective(lead, action)
   const om = outcomeMeta(eff.outcome)
-  const canPickNext = eff.called && eff.notes.trim().length > 0
 
   return (
     <div className={cn('widget flex flex-col gap-3 rounded-2xl p-4', eff.called && 'opacity-95')}>
@@ -90,7 +89,7 @@ function LeadCard({
       <div className="flex items-center gap-2">
         {tel ? (
           <button onClick={() => openExternal(tel)} title={`Call ${lead.phone}`}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-[6px] bg-ink px-4 py-2.5 text-sm font-semibold text-[var(--ink-fg)] transition duration-200 hover:-translate-y-0.5">
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-[8px] border border-emerald/30 bg-emerald/10 px-4 py-2.5 text-sm font-semibold text-emerald transition duration-200 hover:bg-emerald/15">
             <IconPhone className="h-4 w-4" /> Call {lead.phone}
           </button>
         ) : (
@@ -112,32 +111,32 @@ function LeadCard({
         Called this business
       </label>
 
-      {/* notes */}
-      <textarea value={eff.notes} onChange={(e) => onPatch({ notes: e.target.value })} rows={2}
-        placeholder="Notes from the call — who you spoke to, interest, best time to reach…"
-        className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-[12.5px] text-text outline-none placeholder:text-subtle focus:border-accent" />
-
-      {/* next step — revealed once called + a note exists */}
-      {canPickNext ? (
-        <div>
-          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-subtle">Next step</div>
-          <div className="flex flex-wrap gap-1.5">
-            {OUTCOMES.map((o) => {
-              const on = eff.outcome === o.id
-              return (
-                <button key={o.id} onClick={() => onPatch({ outcome: on ? '' : o.id })} title={o.hint}
-                  className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition"
-                  style={on
-                    ? { borderColor: o.color, color: o.color, background: `color-mix(in srgb, ${o.color} 12%, transparent)` }
-                    : { borderColor: 'var(--border-strong)', color: 'var(--muted)' }}>
-                  {o.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ) : (
-        <div className="text-[11px] text-subtle">Check “Called” and jot a note to log the next step.</div>
+      {/* notes + next step — revealed once "Called" is checked (keeps uncalled cards compact) */}
+      {eff.called && (
+        <>
+          <textarea value={eff.notes} onChange={(e) => onPatch({ notes: e.target.value })} rows={2}
+            placeholder="Notes from the call — who you spoke to, interest, best time to reach…"
+            className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-[12.5px] text-text outline-none placeholder:text-subtle focus:border-accent" />
+          {eff.notes.trim().length > 0 && (
+            <div>
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-subtle">Next step</div>
+              <div className="flex flex-wrap gap-1.5">
+                {OUTCOMES.map((o) => {
+                  const on = eff.outcome === o.id
+                  return (
+                    <button key={o.id} onClick={() => onPatch({ outcome: on ? '' : o.id })} title={o.hint}
+                      className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition"
+                      style={on
+                        ? { borderColor: o.color, color: o.color, background: `color-mix(in srgb, ${o.color} 12%, transparent)` }
+                        : { borderColor: 'var(--border-strong)', color: 'var(--muted)' }}>
+                      {o.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

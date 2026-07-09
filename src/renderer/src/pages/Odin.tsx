@@ -195,7 +195,7 @@ export function Odin(): React.JSX.Element {
       `}</style>
 
       <img src={realm} alt="" aria-hidden="true" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,10,16,.52), rgba(6,10,16,.64) 55%, rgba(5,8,13,.9))' }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(6,10,16,.64), rgba(6,10,16,.74) 55%, rgba(5,8,13,.95))' }} />
 
       {/* Header — title left/center, controls grouped on the RIGHT */}
       <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14, padding: '11px 20px', borderLeft: 0, borderRight: 0, borderTop: 0 }}>

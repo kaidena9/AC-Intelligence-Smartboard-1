@@ -301,7 +301,7 @@ export function Settings(): React.JSX.Element {
         <h3 className="font-semibold text-text">Your data</h3>
         <p className="mt-1 text-sm text-muted">
           You're tracking <span className="font-semibold text-text">{count}</span>{' '}
-          {count === 1 ? 'site' : 'sites'}.{' '}
+          {count === 1 ? 'repo' : 'repos'}.{' '}
           {isWeb()
             ? 'Everything is stored in your browser\'s localStorage — private to this device and browser.'
             : 'Everything is stored locally on your machine with atomic, backed-up writes — nothing leaves your machine.'}
@@ -311,9 +311,9 @@ export function Settings(): React.JSX.Element {
       <Card className="p-6">
         <h3 className="font-semibold text-text">About</h3>
         <p className="mt-1 text-sm text-muted">
-          Website Cookbook — your personal hub for building websites with the 7-level method.
+          AC Intelligence Smartboard — your command center for projects, leads, email, and the Athena &amp; Odin AI operators.
         </p>
-        <div className="mt-3 text-xs text-subtle">Version 0.1.0</div>
+        <div className="mt-3 text-xs text-subtle">Version 1.0</div>
       </Card>
     </div>
   )

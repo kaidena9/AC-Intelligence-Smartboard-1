@@ -303,8 +303,8 @@ export function Ops(): React.JSX.Element {
           {!status?.claude.wip?.length && <div style={{ fontSize: 11, color: 'var(--text-subtle)' }}>no active directives</div>}
         </div>
 
-        {/* CENTER — THE MIND */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', minHeight: 0, overflow: 'hidden', marginTop: '-2vh' }}>
+        {/* CENTER — THE MIND (vertically centered so it fills the column, not top-heavy) */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 0, overflow: 'hidden' }}>
           <Brain notes={notes || 23} active={feed?.active ?? false} tempo={(feed?.events.length ?? 0) / 6} />
           <div style={{ marginTop: 'min(-4vh, -24px)', textAlign: 'center', position: 'relative' }}>
             <div style={{ fontSize: 9.5, letterSpacing: '.3em', color: 'var(--text-muted)' }}>PRIMARY DIRECTIVE · CLAUDE MASTERY</div>

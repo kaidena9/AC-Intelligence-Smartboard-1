@@ -36,8 +36,11 @@ export function SitePreview({
 
   if (!url) {
     return (
-      <div ref={ref} className="flex w-full items-center justify-center bg-surface-2 text-xs text-subtle" style={{ height }}>
-        No live URL
+      <div ref={ref} className="flex w-full flex-col items-center justify-center gap-1.5 bg-surface-2 text-subtle" style={{ height }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" style={{ opacity: 0.45 }}>
+          <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c2.5 2.5 2.5 15.5 0 18M12 3c-2.5 2.5-2.5 15.5 0 18" />
+        </svg>
+        <span className="text-[11px]">No live site</span>
       </div>
     )
   }

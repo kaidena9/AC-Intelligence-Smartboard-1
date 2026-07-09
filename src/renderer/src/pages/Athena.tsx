@@ -276,8 +276,8 @@ export function Athena(): React.JSX.Element {
       <img src={tab === 'chat' ? odyssey : mural} alt="" aria-hidden="true" draggable={false}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: tab === 'chat'
-        ? 'linear-gradient(180deg, rgba(12,9,4,.5), rgba(12,9,4,.62) 55%, rgba(10,8,4,.9))'
-        : 'linear-gradient(180deg, rgba(10,8,5,.56), rgba(10,8,5,.72))' }} />
+        ? 'linear-gradient(180deg, rgba(12,9,4,.64), rgba(12,9,4,.72) 55%, rgba(10,8,4,.95))'
+        : 'linear-gradient(180deg, rgba(10,8,5,.66), rgba(10,8,5,.8))' }} />
 
       {/* top tab bar */}
       <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderLeft: 0, borderRight: 0, borderTop: 0 }}>
@@ -412,7 +412,7 @@ export function Athena(): React.JSX.Element {
                   const isHeld = held === id
                   return (
                     <button key={id} onClick={() => onBench(id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: isHeld ? 'rgba(201,162,39,.22)' : 'rgba(10,8,4,.55)', border: `1px solid ${isHeld ? '#fff' : isOp ? '#e8c95a' : seat >= 0 ? '#c9a227' : 'rgba(201,162,39,.25)'}`, borderRadius: 4, padding: '8px 10px', cursor: 'pointer', color: '#efe6d0', fontFamily: 'inherit', position: 'relative', transition: 'border-color .15s, background .15s' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: isHeld ? 'rgba(201,162,39,.22)' : 'rgba(10,8,4,.55)', border: `1px solid ${isHeld ? '#fff' : isOp ? '#e8c95a' : seat >= 0 ? '#c9a227' : 'rgba(201,162,39,.25)'}`, borderRadius: 4, padding: '6px 9px', cursor: 'pointer', color: '#efe6d0', fontFamily: 'inherit', position: 'relative', transition: 'border-color .15s, background .15s' }}>
                       <Logo id={id} />
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{short(id)}</span>
@@ -427,15 +427,31 @@ export function Athena(): React.JSX.Element {
             </div>
             {/* ORCHESTRATOR GRAPH */}
             <div className="glass" style={{ flex: '1 1 420px', borderRadius: 5, padding: 16, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-              <img src={olympus} alt="" aria-hidden="true" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: .85 }} />
-              <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(10,8,4,.32), rgba(10,8,4,.58))' }} />
+              <img src={olympus} alt="" aria-hidden="true" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: .5 }} />
+              <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 95% at 50% 40%, rgba(10,8,4,.34), rgba(8,6,3,.86))' }} />
               <div style={{ position: 'relative' }}>
               <div className="via" style={{ textAlign: 'center' }}>Core · Orchestrator</div>
               <svg width="100%" height="322" viewBox="0 0 560 322">
-                {/* feeds: start below the core name, end above the EXPERT captions */}
+                <defs>
+                  <linearGradient id="feed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor="rgba(232,201,90,.95)" />
+                    <stop offset="1" stopColor="rgba(232,201,90,.4)" />
+                  </linearGradient>
+                  <filter id="feedglow" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur stdDeviation="2" result="b" />
+                    <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
+                </defs>
+                {/* feeds: solid glowing lines core → experts (was faint dashes) */}
                 {WXS.map((x, i) => {
                   const cx = x * 0.93 + 20
-                  return <path key={i} d={`M 280 126 C 280 165, ${cx} 158, ${cx} 196`} fill="none" stroke={editing.workers[i] ? 'rgba(232,201,90,.85)' : 'rgba(201,162,39,.3)'} strokeWidth="1.4" strokeDasharray="5 5" />
+                  const on = !!editing.workers[i]
+                  return (
+                    <g key={i} filter={on ? 'url(#feedglow)' : undefined}>
+                      <path d={`M 280 126 C 280 165, ${cx} 158, ${cx} 196`} fill="none" stroke={on ? 'url(#feed)' : 'rgba(201,162,39,.22)'} strokeWidth={on ? 2 : 1.2} strokeLinecap="round" />
+                      {on && <circle cx={cx} cy="196" r="2.6" fill="rgba(240,225,150,.95)" />}
+                    </g>
+                  )
                 })}
                 {/* CORE — click to arm/place; holding a model drops it here (and pins it) */}
                 <g className="nodecirc" onClick={() => onSeat(-1, true)} style={{ cursor: 'pointer' }}>
