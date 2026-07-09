@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useInbox } from '../store/useInbox'
 import { Button } from '../components/ui'
 import { relativeTime, cn } from '../lib/util'
@@ -29,6 +29,12 @@ export function Inbox(): React.JSX.Element {
   const openCompose = useInbox((s) => s.openCompose)
   const closeCompose = useInbox((s) => s.closeCompose)
   const send = useInbox((s) => s.send)
+  const load = useInbox((s) => s.load)
+  const live = useInbox((s) => s.live)
+  const loading = useInbox((s) => s.loading)
+  const composeError = useInbox((s) => s.composeError)
+
+  useEffect(() => { void load() }, [load])
 
   const [view, setView] = useState<View>('all')
   const [q, setQ] = useState('')
@@ -127,8 +133,13 @@ export function Inbox(): React.JSX.Element {
           <div className="my-1.5 border-t border-border" />
           {SECONDARY.map((n) => <NavRow key={n.id} n={n} />)}
         </nav>
-        <div className="px-2 text-[10.5px] leading-tight text-subtle">
-          <div className="font-semibold text-muted">AC Intelligence</div>{account}
+        <div className="px-2 text-[10.5px] leading-tight">
+          <div className="flex items-center gap-1.5">
+            <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'bg-emerald' : 'bg-amber')} />
+            <span className="font-semibold text-muted">{live ? 'Live inbox' : 'Demo mailbox'}</span>
+            <button onClick={() => void load()} title="Refresh" className="ml-auto text-[12px] text-subtle hover:text-text">↻</button>
+          </div>
+          <div className="mt-0.5 truncate text-subtle">{account}</div>
         </div>
       </div>
 
@@ -140,7 +151,9 @@ export function Inbox(): React.JSX.Element {
             className="w-full rounded-full border border-border bg-bg py-1.5 pl-9 pr-3 text-[13px] text-text outline-none focus:border-accent" />
         </div>
         <div className="flex-1 divide-y divide-border overflow-y-auto">
-          {list.length === 0 ? (
+          {loading ? (
+            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">Loading mail…</div>
+          ) : list.length === 0 ? (
             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted">{q ? 'No matches.' : 'Nothing here.'}</div>
           ) : list.map((m) => {
             const isSel = selected?.id === m.id; const cc = cls[m.id]
@@ -242,6 +255,9 @@ export function Inbox(): React.JSX.Element {
                 </div>
                 <div className="mt-2 flex justify-end"><button onClick={() => { saveVars(vars); setSigOpen(false) }} className="text-[12px] font-semibold text-accent hover:underline">Save signature</button></div>
               </div>
+            )}
+            {composeError && (
+              <div className="mx-5 mb-2 rounded-lg border border-red/30 bg-red/10 px-3 py-2 text-[12px] text-red">{composeError}</div>
             )}
             <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
               <div className="relative flex items-center gap-2">
